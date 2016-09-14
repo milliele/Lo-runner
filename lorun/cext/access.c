@@ -29,13 +29,15 @@ int fileAccess(PyObject *files, const char *file, long flags) {
     if ((perm_obj = PyDict_GetItemString(files, file)) == NULL) {
         return 0;
     }
-    //printf("%s:%d\n",file,flags);
+    // #define RAISE_EXIT(err) {last_limit_err = err;return -1;}
+    // RAISE_EXIT(flags);
     #ifdef IS_PY3
     perm = PyLong_AsLong(perm_obj);
     #else
     perm = PyInt_AsLong(perm_obj);
     #endif
-    if (perm == flags)
+    // if (perm == flags)
+    if(perm > 0)
         return 1;
 
     return 0;

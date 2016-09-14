@@ -59,6 +59,7 @@ int traceLoop(struct Runobj *runobj, struct Result *rst, pid_t pid) {
                         rst->judge_result = RE;
                     break;
                 case SIGALRM:
+                case SIGVTALRM:
                 case SIGXCPU:
                     rst->judge_result = TLE;
                     break;
@@ -107,8 +108,8 @@ int traceLoop(struct Runobj *runobj, struct Result *rst, pid_t pid) {
 
         ptrace(PTRACE_SYSCALL, pid, NULL, NULL);
     }
-    
-    
+
+
     rst->time_used = ru.ru_utime.tv_sec * 1000
             + ru.ru_utime.tv_usec / 1000
             + ru.ru_stime.tv_sec * 1000
@@ -142,14 +143,31 @@ int waitExit(struct Runobj *runobj, struct Result *rst, pid_t pid) {
     if (WIFSIGNALED(status)) {
         switch (WTERMSIG(status)) {
             case SIGSEGV:
-                if (rst->memory_used > runobj->memory_limit)
-                    rst->judge_result = MLE;
-                else
-                    rst->judge_result = RE;
+                // if (rst->memory_used > runobj->memory_limit)
+                //     rst->judge_result = MLE;
+                // else
+                //     rst->judge_result = RE;
+                // 经检验，栈溢出的时候也会返回这个信号。
+                // 然而内存溢出的时候，rst->memory_used的值异常的小，
+                // 上述代码在内存使用溢出的时候会报 RE
+                // 因此强制改为 MLE，至于栈溢出的话也没法判断了，不知道有没有别的解决方法
+                rst->judge_result = MLE;
+                break;
+            case SIGXFSZ:
+                rst->judge_result = OLE;
                 break;
             case SIGALRM:
+            case SIGVTALRM:
             case SIGXCPU:
                 rst->judge_result = TLE;
+                break;
+            case SIGKILL:
+                // 我并不知道我为什么要加入这个东西，以前改进去的
+                if(rst->time_used > (runobj->time_limit - 100)){
+                    rst->judge_result = TLE;
+                }else{
+                    rst->judge_result = MLE;
+                }
                 break;
             default:
                 rst->judge_result = RE;
@@ -239,4 +257,3 @@ int runit(struct Runobj *runobj, struct Result *rst) {
         return 0;
     }
 }
-
