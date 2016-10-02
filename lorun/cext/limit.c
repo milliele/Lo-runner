@@ -64,12 +64,15 @@ int setResLimit(struct Runobj *runobj) {
     也就是说，我们要告诉setitimer函数是tv_sec秒tv_usec微秒的时候给出一个SIGALRM(14)信号
     定时器的使用计算的是程序实际运行的时间，在得到进度的同时，也不可避免的可能会影响题目程序预期CPU时间
     这是为了精度的妥协（怪我咯，谁让CPU时间限制单位是秒，ACM协会说要毫秒精度，我也没办法...）
+    ITIMER_REAL： 按实际时间计时，这个比较准确的，就是可能会因为系统原因有一些影响，加100ms作为补偿
+    ITIMER_VIRTUAL： 按进程运行的时间计时。这个有点问题，就是说，如果是阻塞，则不计时...于是
+    类似scanf函数的阻塞就没卵用了。。。
     */
     p_realt.it_interval.tv_sec = runobj->time_limit / 1000;
-    p_realt.it_interval.tv_usec = (runobj->time_limit % 1000) * 1000;
+    p_realt.it_interval.tv_usec = ((runobj->time_limit % 1000) + 100) * 1000;
     p_realt.it_value = p_realt.it_interval;
-    if (setitimer(ITIMER_VIRTUAL, &p_realt, NULL) == -1)
-        RAISE_EXIT("set ITIMER_VIRTUAL failure");
+    if (setitimer(ITIMER_REAL, &p_realt, NULL) == -1)
+        RAISE_EXIT("set ITIMER_REAL failure");
 
     rl.rlim_cur = runobj->memory_limit * 1024 + 1024 * 1024; //附加1MB内存修正
     rl.rlim_max = rl.rlim_cur + 1024;
