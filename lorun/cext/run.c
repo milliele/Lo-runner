@@ -131,27 +131,26 @@ int waitExit(struct Runobj *runobj, struct Result *rst, pid_t pid) {
     int status;
     struct rusage ru;
 
-    if (wait4(pid, &status, 0, &ru) == -1)
+    if (wait4(pid, &status, WUNTRACED, &ru) == -1)
         RAISE_RUN("wait4 failure");
 
     rst->time_used = ru.ru_utime.tv_sec * 1000
             + ru.ru_utime.tv_usec / 1000
             + ru.ru_stime.tv_sec * 1000
-            + ru.ru_stime.tv_usec / 1000;
+            + ru.ru_stime.tv_usec / 1000;    
+    
     rst->memory_used = ru.ru_maxrss;
-
+    
     if (WIFSIGNALED(status)) {
         switch (WTERMSIG(status)) {
             case SIGSEGV:
-                // if (rst->memory_used > runobj->memory_limit)
-                //     rst->judge_result = MLE;
-                // else
-                //     rst->judge_result = RE;
-                // 经检验，栈溢出的时候也会返回这个信号。
-                // 然而内存溢出的时候，rst->memory_used的值异常的小，
-                // 上述代码在内存使用溢出的时候会报 RE
-                // 因此强制改为 MLE，至于栈溢出的话也没法判断了，不知道有没有别的解决方法
-                rst->judge_result = MLE;
+                if (rst->memory_used > runobj->memory_limit)
+                     rst->judge_result = MLE;
+                else
+                     rst->judge_result = RE;
+                /*
+                使用 setrlimt 设置 RLIMIT_AS 这个限制的时候，从Linux官方文档可以得知，一定会引发SIGSEGV信号。
+                */
                 break;
             case SIGXFSZ:
                 rst->judge_result = OLE;
@@ -163,6 +162,8 @@ int waitExit(struct Runobj *runobj, struct Result *rst, pid_t pid) {
                 break;
             case SIGKILL:
                 // 我并不知道我为什么要加入这个东西，以前改进去的
+                // 大概就是说，如果太过分MLE会触发系统的 SIGKILL信号强制退出
+                // 所以呢，如果是因为用时超过限制的话，其实是可以判断的，否则就是MLE了。
                 if(rst->time_used > (runobj->time_limit - 100)){
                     rst->judge_result = TLE;
                 }else{

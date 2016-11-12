@@ -74,15 +74,15 @@ int setResLimit(struct Runobj *runobj) {
     if (setitimer(ITIMER_REAL, &p_realt, NULL) == -1)
         RAISE_EXIT("set ITIMER_REAL failure");
 
-    rl.rlim_cur = runobj->memory_limit * 1024 + 1024 * 1024; //附加1MB内存修正
+    rl.rlim_cur = runobj->memory_limit * 1024; //附加1MB内存修正
     rl.rlim_max = rl.rlim_cur + 1024;
     if (setrlimit(RLIMIT_DATA, &rl))
         RAISE_EXIT("set RLIMIT_DATA failure");
-
-    rl.rlim_cur = runobj->memory_limit * 1024 + 3 * 1024 * 1024; //附加3MB内存修正
-    rl.rlim_max = rl.rlim_cur + 1024;
-    if (setrlimit(RLIMIT_AS, &rl))
-        RAISE_EXIT("set RLIMIT_AS failure");
+//
+//    rl.rlim_cur = runobj->memory_limit * 1024 + 3 * 1024 * 1024; //附加3MB内存修正
+//    rl.rlim_max = rl.rlim_cur + 1024;
+//    if (setrlimit(RLIMIT_AS, &rl))
+//        RAISE_EXIT("set RLIMIT_AS failure");
 
     // 栈空间设置限制为8MB
     rl.rlim_cur = 8 * 1024 * 1024;

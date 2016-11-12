@@ -43,6 +43,9 @@ int checkDiff(int rightout_fd, int userout_fd, int *result) {
 
     if (userout_len >= MAX_OUTPUT)
         RETURN(OLE);
+      /*OLE means the user output text is longer than the right output * 2*/
+    if (userout_len > rightout_len * 2)
+        RETURN(OLE);
 
     lseek(userout_fd, 0, SEEK_SET);
     lseek(rightout_fd, 0, SEEK_SET);
@@ -109,4 +112,3 @@ int checkDiff(int rightout_fd, int userout_fd, int *result) {
     munmap(rightout, rightout_len);
     RETURN(WA);
 }
-
