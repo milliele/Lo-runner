@@ -23,6 +23,10 @@
 #include <sys/types.h>
 #define CALLS_MAX 400
 #define MAX_OUTPUT 100000000
+#define SJ_DISABLED 0
+#define SJ_CHECKER 1
+#define SJ_INTERACTIVE 2
+
 
 enum JUDGE_RESULT {
     AC=0,   //0 Accepted
@@ -34,6 +38,10 @@ enum JUDGE_RESULT {
     OLE,	//6 Output Limit Exceeded
     CE,	    //7 Compile Error
     SE,     //8 System Error
+    //RJ,     //9 Rejudge
+    SPJERR1=10,    // 10 Special Judger Time OUT
+    SPJERR2=11,    // 11 Special Judger ERROR
+    SPJFIN=12,    // 12 Special Judger Finish, Need Standard Checkup
 };
 
 struct Result {
@@ -51,9 +59,26 @@ struct Runobj {
     char * const* args;
 
     int fd_in, fd_out, fd_err;
+
     int time_limit, memory_limit;
     int runner;
     int trace;
+
+    int special_judge;              // 0: disable ; 1: checker ; 2: interactive
+    char * const* special_judge_checker;
+
+    // ======= checker mode（检查、修正模式） =======
+    // special_judge_checker数组定义如下：[0]: checker program; [1]: In File; [2]: Out File; [3]: Answer File
+    // 判题机将会执行目标程序，目标程序运行结束后，将会执行检查程序 (最大时间:30000ms)
+    // 执行程序时给定输入文件，输出文件，目标程序输出文件，checker将检查并且在stdin里输出
+    // CHECKER_AC=0,  CHECKER_PE=1, CHECKER_WA=2, CHECKER_OLE=6 或者 CHECK_CONVERTED=15
+    // 如果输出 CHECK_CONVERTED，意味着您的checker将仅对目标程序的应答数据进行处理，检查器将继续执行传统的数据检查程序。（注意，PE将被强制忽略）
+    // 如果不是这样，那么系统将根据你的checker返回的结果作为最终的评判结果
+    // ======= interactive 交互判题模式  =======
+    // special_judge_checker数组定义如下：[0]: checker program; [1]: In File; [2]: Out File; [3] Run Result File
+    // 判题机将会在执行目标程序的同时执行检查程序，他们共有的时间是都是 TIME_LIMIT
+    // 交互评测模式将把检查程序和目标程序的stdin和stdout关联起来，让他们相互交流
+    // 运行结束后，检查程序将结果写入check_result_file，由判题机读取并且处理
 };
 
 #define RAISE(msg) PyErr_SetString(PyExc_Exception,msg);

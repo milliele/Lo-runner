@@ -20,12 +20,13 @@
 #include "convert.h"
 #include "run.h"
 #include "diff.h"
+#include "special_judge.h"
 
 
 int initRun(struct Runobj *runobj, PyObject *args)
 {
     PyObject *config, *args_obj, *trace_obj, *time_obj, *memory_obj;
-    PyObject *calls_obj, *runner_obj, *fd_obj;
+    PyObject *calls_obj, *runner_obj, *fd_obj, *special_judge_obj, *special_judge_checker_args;
     
     if (!PyArg_ParseTuple(args, "O", &config))
         RAISE1("initRun parseTuple failure");
@@ -53,6 +54,22 @@ int initRun(struct Runobj *runobj, PyObject *args)
     if((memory_obj = PyDict_GetItemString(config, "memorylimit")) == NULL)
         RAISE1("must supply memorylimit");
     runobj->memory_limit = PyLong_AsLong(memory_obj);
+    
+    // -- special judge --
+    if((special_judge_obj = PyDict_GetItemString(config, "special_judge")) != NULL)
+        runobj->special_judge = PyLong_AsLong(special_judge_obj);
+    else
+        runobj->special_judge = SJ_DISABLED;
+        
+    if((special_judge_checker_args = PyDict_GetItemString(config, "special_judge_checker")) == NULL){
+        runobj->special_judge = SJ_DISABLED;
+    }else{
+        if((runobj->special_judge_checker = genRunArgs(special_judge_checker_args)) == NULL) {
+            runobj->special_judge = SJ_DISABLED;
+        }
+    }
+    // ---- ----- ---- ----
+    
     
     if((runner_obj = PyDict_GetItemString(config, "runner")) == NULL)
         runobj->runner = -1;
@@ -86,18 +103,78 @@ PyObject *run(PyObject *self, PyObject *args)
     rst.re_call = -1;
     
     if(initRun(&runobj, args)){
+        //failed
+        if(runobj.args)
+            free((void*)runobj.args);
+        if(runobj.special_judge_checker)
+            free((void*)runobj.special_judge_checker);
+        return NULL;
+    }
+    if(runit(&runobj, &rst) == -1)
+        return NULL;
+    
+    // clean char arrays
+    if(runobj.args)
+        free((void*)runobj.args);
+    if(runobj.special_judge_checker)
+        free((void*)runobj.special_judge_checker);
+
+    return genResult(&rst);
+
+}
+
+PyObject *run_interactive(PyObject *self, PyObject *args)
+{
+    struct Runobj runobj = {0};
+    struct Result rst = {0};
+    rst.re_call = -1;
+    
+    if(initRun(&runobj, args)){
+        //failed
+        if(runobj.args)
+            free((void*)runobj.args);
+        if(runobj.special_judge_checker)
+            free((void*)runobj.special_judge_checker);
+        return NULL;
+    }
+    if(interactive_judge(&runobj, &rst) == -1)
+        return NULL;
+    
+    // clean char arrays
+    if(runobj.args)
+        free((void*)runobj.args);
+    if(runobj.special_judge_checker)
+        free((void*)runobj.special_judge_checker);
+
+    return genResult(&rst);
+
+}
+
+PyObject *run_checker(PyObject *self, PyObject *args)
+{
+    struct Runobj runobj = {0};
+    struct Result rst = {0};
+    rst.re_call = -1;
+    
+    if(initRun(&runobj, args)){
         if(runobj.args)
             free((void*)runobj.args);
         return NULL;
     }
     
-    if(runit(&runobj, &rst) == -1)
+    
+    if(special_checker(&runobj, &rst)== -1)
         return NULL;
+
+    // clean char arrays
     if(runobj.args)
         free((void*)runobj.args);
-    
+    if(runobj.special_judge_checker)
+        free((void*)runobj.special_judge_checker);
+
     return genResult(&rst);
 }
+
 
 PyObject* check(PyObject *self, PyObject *args)
 {
@@ -125,6 +202,8 @@ PyObject* check(PyObject *self, PyObject *args)
 
 static PyMethodDef lorun_methods[] = {
 	{"run", run, METH_VARARGS, run_description},
+	{"run_interactive", run_interactive, METH_VARARGS, "run_interactive(argv_dict)\n"},
+	{"run_checker", run_checker, METH_VARARGS, "run_checker(argv_dict)\n"},
 	{"check", check, METH_VARARGS, check_description},
 	{NULL, NULL, 0, NULL}
 };

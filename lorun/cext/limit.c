@@ -21,9 +21,9 @@
 #include <sys/time.h>
 
 const char *last_limit_err;
-
-int setResLimit(struct Runobj *runobj) {
 #define RAISE_EXIT(err) {last_limit_err = err;return -1;}
+int setResLimit(struct Runobj *runobj) {
+ 
     struct rlimit rl;
     struct itimerval p_realt;
     /*
@@ -74,7 +74,7 @@ int setResLimit(struct Runobj *runobj) {
     if (setitimer(ITIMER_REAL, &p_realt, NULL) == -1)
         RAISE_EXIT("set ITIMER_REAL failure");
 
-    rl.rlim_cur = runobj->memory_limit * 1024; //附加1MB内存修正
+    rl.rlim_cur = runobj->memory_limit * 1024;
     rl.rlim_max = rl.rlim_cur + 1024;
     if (setrlimit(RLIMIT_DATA, &rl))
         RAISE_EXIT("set RLIMIT_DATA failure");
@@ -99,3 +99,24 @@ int setResLimit(struct Runobj *runobj) {
 
     return 0;
 }
+
+int spj_reslimit(){
+    
+    struct rlimit rl;
+    struct itimerval p_realt;
+    rl.rlim_cur = 30;		// 30s max for special judge
+    rl.rlim_max = 30;
+    if (setrlimit(RLIMIT_CPU, &rl))
+        RAISE_EXIT("set RLIMIT_CPU failure");
+    p_realt.it_interval.tv_sec = 30;
+    p_realt.it_interval.tv_usec = 0;
+    p_realt.it_value = p_realt.it_interval;
+    if (setitimer(ITIMER_REAL, &p_realt, NULL) == -1)
+        RAISE_EXIT("set ITIMER_REAL failure");
+    rl.rlim_cur = 255 * 1024 * 1024; 	// 255M
+    rl.rlim_max = rl.rlim_cur + 1024;
+    if (setrlimit(RLIMIT_DATA, &rl))
+        RAISE_EXIT("set RLIMIT_DATA failure");
+    return 0;
+}
+
