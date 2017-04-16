@@ -22,6 +22,7 @@
 #include "lorun.h"
 
 int setResLimit(struct Runobj *runobj);
+int spji_reslimit(struct Runobj *runobj);
 int spj_reslimit(void);
 extern const char *last_limit_err;
 #endif

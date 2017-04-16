@@ -100,6 +100,23 @@ int setResLimit(struct Runobj *runobj) {
     return 0;
 }
 
+
+int spji_reslimit(struct Runobj *runobj){
+    
+    struct rlimit rl;
+    struct itimerval p_realt;
+    rl.rlim_cur = runobj->time_limit / 1000 + 1;   // 续1s
+    rl.rlim_max = runobj->time_limit / 1000 + 2;  
+    if (setrlimit(RLIMIT_CPU, &rl))
+        RAISE_EXIT("set RLIMIT_CPU failure");
+    p_realt.it_interval.tv_sec = runobj->time_limit / 1000 + 1; // 续1s
+    p_realt.it_interval.tv_usec = 500;
+    p_realt.it_value = p_realt.it_interval;
+    if (setitimer(ITIMER_REAL, &p_realt, NULL) == -1)
+        RAISE_EXIT("set ITIMER_REAL failure");
+    return 0;
+}
+
 int spj_reslimit(){
     
     struct rlimit rl;
@@ -113,10 +130,6 @@ int spj_reslimit(){
     p_realt.it_value = p_realt.it_interval;
     if (setitimer(ITIMER_REAL, &p_realt, NULL) == -1)
         RAISE_EXIT("set ITIMER_REAL failure");
-    rl.rlim_cur = 255 * 1024 * 1024; 	// 255M
-    rl.rlim_max = rl.rlim_cur + 1024;
-    if (setrlimit(RLIMIT_DATA, &rl))
-        RAISE_EXIT("set RLIMIT_DATA failure");
     return 0;
 }
 

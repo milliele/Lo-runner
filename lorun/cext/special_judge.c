@@ -148,7 +148,7 @@ int interactive_judge(struct Runobj *runobj, struct Result *rst){
 				RAISE_EXIT("dup2 stderr failure");
 			}
 			
-			if (setResLimit(runobj) == -1)
+			if (spji_reslimit(runobj) == -1)
 				RAISE_EXIT(last_limit_err);
 				
 			execvp(runobj->special_judge_checker[0], (char * const *) runobj->special_judge_checker);
@@ -157,6 +157,55 @@ int interactive_judge(struct Runobj *runobj, struct Result *rst){
 			int status;
 			struct rusage ru;
 			int rel;
+				// for target
+			if(wait4(pid1, &status, WUNTRACED, &ru) < 0)
+				RAISE_RUN("wait4 failure");
+			rst->time_used = ru.ru_utime.tv_sec * 1000
+					+ ru.ru_utime.tv_usec / 1000
+					+ ru.ru_stime.tv_sec * 1000
+					+ ru.ru_stime.tv_usec / 1000;    
+			
+			rst->memory_used = ru.ru_minflt * (sysconf(_SC_PAGESIZE) / 1024);
+			
+			if (WIFSIGNALED(status)) {
+				switch (WTERMSIG(status)) {
+					case SIGSEGV:
+						if (rst->memory_used > runobj->memory_limit)
+							 rst->judge_result = MLE;
+						else
+							 rst->judge_result = RE;
+						break;
+					case SIGXFSZ:
+						rst->judge_result = OLE;
+						break;
+					case SIGALRM:
+					case SIGVTALRM:
+					case SIGXCPU:
+						rst->judge_result = TLE;
+						break;
+					case SIGKILL:
+						if(rst->time_used > (runobj->time_limit - 100)){
+							rst->judge_result = TLE;
+						}else{
+							rst->judge_result = MLE;
+						}
+						break;
+					default:
+						rst->judge_result = RE;
+						break;
+				}
+				rst->re_signum = WTERMSIG(status);
+				kill(pid2, 9);		// Stop judger
+			} else {
+				if (rst->time_used > runobj->time_limit)
+					rst->judge_result = TLE;
+				else if (rst->memory_used > runobj->memory_limit)
+					rst->judge_result = MLE;
+				else
+					rst->judge_result = SPJFIN;
+			}	
+			if(rst->judge_result != SPJFIN)
+				return 0;
 			// for judger
 			if(wait4(pid2, &status, WUNTRACED, &ru) < 0)
 				RAISE_RUN("wait4 failure");
@@ -196,55 +245,6 @@ int interactive_judge(struct Runobj *runobj, struct Result *rst){
 						break;
 				}
 			}
-//			if(rst->judge_result != SPJFIN)
-//				return 0;
-			// for target
-			if(wait4(pid1, &status, WUNTRACED, &ru) < 0)
-				RAISE_RUN("wait4 failure");
-			rst->time_used = ru.ru_utime.tv_sec * 1000
-					+ ru.ru_utime.tv_usec / 1000
-					+ ru.ru_stime.tv_sec * 1000
-					+ ru.ru_stime.tv_usec / 1000;    
-			
-			rst->memory_used = ru.ru_minflt * (sysconf(_SC_PAGESIZE) / 1024);
-			
-			if (WIFSIGNALED(status)) {
-				switch (WTERMSIG(status)) {
-					case SIGSEGV:
-						if (rst->memory_used > runobj->memory_limit)
-							 rst->judge_result = MLE;
-						else
-							 rst->judge_result = RE;
-						break;
-					case SIGXFSZ:
-						rst->judge_result = OLE;
-						break;
-					case SIGALRM:
-					case SIGVTALRM:
-					case SIGXCPU:
-						rst->judge_result = TLE;
-						break;
-					case SIGKILL:
-						if(rst->time_used > (runobj->time_limit - 100)){
-							rst->judge_result = TLE;
-						}else{
-							rst->judge_result = MLE;
-						}
-						break;
-					default:
-						rst->judge_result = RE;
-						break;
-				}
-				rst->re_signum = WTERMSIG(status);
-//				kill(pid2);		// Stop judger
-			} else {
-				if (rst->time_used > runobj->time_limit)
-					rst->judge_result = TLE;
-				else if (rst->memory_used > runobj->memory_limit)
-					rst->judge_result = MLE;
-				else
-					rst->judge_result = SPJFIN;
-			}			
 		}
 	}
 	return 0;
