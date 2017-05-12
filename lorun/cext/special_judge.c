@@ -28,12 +28,16 @@ int special_checker(struct Runobj *runobj, struct Result *rst) {
 	else if (pid == 0) {
 		// child thread
 		close(fd_err[0]);
+		
+		if (runobj->fd_in != -1)
+			if (dup2(runobj->fd_out, 0) == -1)
+				RAISE_EXIT("dup2 stdin failure!")
 	
 		if (runobj->fd_err != -1)
 		    if (dup2(runobj->fd_err, 2) == -1)
 			RAISE_EXIT("dup2 stderr failure")
 			
-		if (spj_reslimit() == -1)
+		if (spj_reslimit(runobj) == -1)
 			RAISE_EXIT(last_limit_err)
 			
 		execvp(runobj->special_judge_checker[0], (char * const *) runobj->special_judge_checker);
@@ -59,13 +63,13 @@ int special_checker(struct Runobj *runobj, struct Result *rst) {
 			switch (WTERMSIG(status)) {
 				case SIGXCPU:
 				case SIGALRM:
-					rst->judge_result = SPJERR1;
+					rst->judge_result = RE;		//SPJERR1
 					break;
 				case SIGKILL:
-					rst->judge_result = SPJERR1;
+					rst->judge_result = RE;    //SPJERR1
 					break;
 				default:
-					rst->judge_result = SPJERR2;
+					rst->judge_result = RE;		// SPJERR2
 					break;
 			}
 		}else{

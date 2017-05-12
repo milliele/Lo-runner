@@ -117,15 +117,15 @@ int spji_reslimit(struct Runobj *runobj){
     return 0;
 }
 
-int spj_reslimit(){
+int spj_reslimit(struct Runobj *runobj){
     
     struct rlimit rl;
     struct itimerval p_realt;
-    rl.rlim_cur = 30;		// 30s max for special judge
-    rl.rlim_max = 30;
+    rl.rlim_cur = runobj->time_limit / 1000 + 1;   // 续1s
+    rl.rlim_max = runobj->time_limit / 1000 + 2;  
     if (setrlimit(RLIMIT_CPU, &rl))
         RAISE_EXIT("set RLIMIT_CPU failure");
-    p_realt.it_interval.tv_sec = 30;
+    p_realt.it_interval.tv_sec = runobj->time_limit / 2000 + 1; // 续2s
     p_realt.it_interval.tv_usec = 0;
     p_realt.it_value = p_realt.it_interval;
     if (setitimer(ITIMER_REAL, &p_realt, NULL) == -1)
