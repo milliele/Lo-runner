@@ -44,10 +44,10 @@ def runone(p_path, in_path, out_path):
         crst = lorun.check(fout.fileno(), ftemp.fileno())
         fout.close()
         ftemp.close()
-        os.remove('temp.out')
-        if crst != 0:
-            return {'result':crst}
-    
+        # os.remove('temp.out')
+        if crst.get('result') != 0:
+            return crst
+                
     return rst
 
 def judge(src_path, td_path, td_total):

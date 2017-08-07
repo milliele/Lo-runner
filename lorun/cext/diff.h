@@ -21,6 +21,6 @@
 
 #include "lorun.h"
 
-int checkDiff(int rightout_fd, int userout_fd, int *result);
+int checkDiff(int rightout_fd, int userout_fd, int *result, int *samelines, int *totallines);
 
 #endif

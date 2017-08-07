@@ -178,15 +178,28 @@ PyObject *run_checker(PyObject *self, PyObject *args)
 
 PyObject* check(PyObject *self, PyObject *args)
 {
-    int user_fd, right_fd, rst;
+    int user_fd, right_fd, rst, same_lines, total_lines;
     
     if (!PyArg_ParseTuple(args, "ii", &right_fd, &user_fd))
         RAISE0("run parseTuple failure");
     
-    if(checkDiff(right_fd, user_fd, &rst) == -1)
+    if(checkDiff(right_fd, user_fd, &rst, &same_lines, &total_lines) == -1)
         return NULL;
-    
-    return Py_BuildValue("i", rst);
+        
+    PyObject *rst_obj, *i , *j, *k;
+    if ((rst_obj = PyDict_New()) == NULL)
+        RAISE0("new dict failure");
+    i = PyLong_FromLong(rst);
+    j = PyLong_FromLong(same_lines);
+    k = PyLong_FromLong(total_lines);
+    if (!j || !i)
+        RAISE0("set item falure(1)");
+        
+    if (PyDict_SetItemString(rst_obj, "result", i) || PyDict_SetItemString(rst_obj, "same_lines", j)  || PyDict_SetItemString(rst_obj, "total_lines", k))
+        RAISE0("set item falure");
+   
+    return rst_obj;
+    //return Py_BuildValue("i", rst);
 }
 
 #define run_description "run(argv_dict):\n"\
