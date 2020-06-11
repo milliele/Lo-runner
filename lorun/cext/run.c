@@ -22,10 +22,13 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/user.h>
+#include <sys/syscall.h>
 #include <unistd.h>
+#include <string.h>
 #include <fcntl.h>
 #include "access.h"
 #include "limit.h"
+#include <stdio.h>
 
 const char *last_run_err;
 #define RAISE_RUN(err) {last_run_err = err;return -1;}
@@ -127,62 +130,168 @@ int traceLoop(struct Runobj *runobj, struct Result *rst, pid_t pid) {
     return 0;
 }
 
-int waitExit(struct Runobj *runobj, struct Result *rst, pid_t pid) {
-    int status;
-    struct rusage ru;
+int get_memory_usage(pid_t pid) {
+    int fd, data;
+    char buf[4096], status_child[NAME_MAX];
+    char *vm;
 
-    if (wait4(pid, &status, WUNTRACED, &ru) == -1)
-        RAISE_RUN("wait4 failure");
+    sprintf(status_child, "/proc/%d/status", pid);
+    if ((fd = open(status_child, O_RDONLY)) < 0)
+        return -1;
+
+    read(fd, buf, 4095);
+    buf[4095] = '\0';
+    close(fd);
+
+    data = 0;
+
+    vm = strstr(buf, "VmPeak:");
+    if (vm) {
+        sscanf(vm, "%*s %d", &data);
+    }
+
+    return data;    
+}
+
+int waitExit(struct Runobj *runobj, struct Result *rst, pid_t pid) {
+    int status, incall = 0;
+    struct rusage ru;
+    struct user_regs_struct regs;
+
+    while (1) {
+        if (wait4(pid, &status, WSTOPPED, &ru) == -1)
+            RAISE_RUN("wait4 [WSTOPPED] failure");
+
+        if (WIFEXITED(status)) {
+            break;
+        }
+        else if (WSTOPSIG(status) != SIGTRAP) {
+            rst->memory_used = get_memory_usage(pid);
+
+            ptrace(PTRACE_KILL, pid, NULL, NULL);
+            waitpid(pid, NULL, 0);
+
+            rst->time_used = ru.ru_utime.tv_sec * 1000
+                    + ru.ru_utime.tv_usec / 1000
+                    + ru.ru_stime.tv_sec * 1000
+                    + ru.ru_stime.tv_usec / 1000;
+            
+
+            switch (WSTOPSIG(status)) {
+                case SIGSEGV:
+                    //如果是超过了内存限制，那么子进程为自己分配内存空间会失败，后面访问这些空间会segment fault
+                    //所以SIGSEGV有可能是RE，有可能是MLE
+                    if (rst->memory_used > runobj->memory_limit)
+                        rst->judge_result = MLE;
+                    else
+                        rst->judge_result = RE;
+                    break;
+                case SIGALRM:
+                case SIGVTALRM:
+                case SIGXCPU:
+                    //要么超过CPU时间限制，要么超过真实时间限制，都是TLE
+                    rst->judge_result = TLE;
+                    break;
+                default:
+                    //其它的非正常abort，就是RE
+                    rst->judge_result = RE;
+                    break;
+            }
+
+            return 0;
+        }
+
+        //获取系统调用号
+        if (ptrace(PTRACE_GETREGS, pid, NULL, &regs) == -1)
+            RAISE_RUN("PTRACE_GETREGS failure");
+
+        if (incall) {
+            unsigned long syscall_number = REG_SYS_CALL(&regs);
+            // printf("%ld\n", syscall_number);
+            if (syscall_number == SYS_exit || syscall_number == SYS_exit_group) {
+                // 拦截exit调用，读取内存使用
+                rst->memory_used = get_memory_usage(pid);
+            }
+            incall = 0;
+        } else
+            incall = 1;
+        //继续系统调用的默认操作
+        ptrace(PTRACE_SYSCALL, pid, NULL, NULL);
+    }
+
 
     rst->time_used = ru.ru_utime.tv_sec * 1000
             + ru.ru_utime.tv_usec / 1000
             + ru.ru_stime.tv_sec * 1000
-            + ru.ru_stime.tv_usec / 1000;    
+            + ru.ru_stime.tv_usec / 1000;
+
+    if (rst->time_used > runobj->time_limit)
+        rst->judge_result = TLE;
+    else if (rst->memory_used > runobj->memory_limit)
+        rst->judge_result = MLE;
+    else
+        rst->judge_result = AC;
+
+    return 0;
+
+
+
+    // int status;
+    // struct rusage ru;
+
+    // if (wait4(pid, &status, WUNTRACED, &ru) == -1)
+    //     RAISE_RUN("wait4 failure");
+
+    // rst->time_used = ru.ru_utime.tv_sec * 1000
+    //         + ru.ru_utime.tv_usec / 1000
+    //         + ru.ru_stime.tv_sec * 1000
+    //         + ru.ru_stime.tv_usec / 1000;    
     
-    rst->memory_used = ru.ru_minflt * (sysconf(_SC_PAGESIZE) / 1024);
+    // rst->memory_used = ru.ru_maxrss;
     
-    if (WIFSIGNALED(status)) {
-        switch (WTERMSIG(status)) {
-            case SIGSEGV:
-                if (rst->memory_used > runobj->memory_limit)
-                     rst->judge_result = MLE;
-                else
-                     rst->judge_result = RE;
-                /*
-                使用 setrlimt 设置 RLIMIT_AS 这个限制的时候，从Linux官方文档可以得知，一定会引发SIGSEGV信号。
-                */
-                break;
-            case SIGXFSZ:
-                rst->judge_result = OLE;
-                break;
-            case SIGALRM:
-            case SIGVTALRM:
-            case SIGXCPU:
-                rst->judge_result = TLE;
-                break;
-            case SIGKILL:
-                // 我并不知道我为什么要加入这个东西，以前改进去的
-                // 大概就是说，如果太过分MLE会触发系统的 SIGKILL信号强制退出
-                // 所以呢，如果是因为用时超过限制的话，其实是可以判断的，否则就是MLE了。
-                if(rst->time_used > (runobj->time_limit - 100)){
-                    rst->judge_result = TLE;
-                }else{
-                    rst->judge_result = MLE;
-                }
-                break;
-            default:
-                rst->judge_result = RE;
-                break;
-        }
-        rst->re_signum = WTERMSIG(status);
-    } else {
-        if (rst->time_used > runobj->time_limit)
-            rst->judge_result = TLE;
-        else if (rst->memory_used > runobj->memory_limit)
-            rst->judge_result = MLE;
-        else
-            rst->judge_result = AC;
-    }
+    // if (WIFSIGNALED(status)) {
+    //     switch (WTERMSIG(status)) {
+    //         case SIGSEGV:
+    //             if (rst->memory_used > runobj->memory_limit)
+    //                  rst->judge_result = MLE;
+    //             else
+    //                  rst->judge_result = RE;
+    //             /*
+    //             使用 setrlimt 设置 RLIMIT_AS 这个限制的时候，从Linux官方文档可以得知，一定会引发SIGSEGV信号。
+    //             */
+    //             break;
+    //         case SIGXFSZ:
+    //             rst->judge_result = OLE;
+    //             break;
+    //         case SIGALRM:
+    //         case SIGVTALRM:
+    //         case SIGXCPU:
+    //         case SIGPROF:
+    //             rst->judge_result = TLE;
+    //             break;
+    //         case SIGKILL:
+    //             // 我并不知道我为什么要加入这个东西，以前改进去的
+    //             // 大概就是说，如果太过分MLE会触发系统的 SIGKILL信号强制退出
+    //             // 所以呢，如果是因为用时超过限制的话，其实是可以判断的，否则就是MLE了。
+    //             if(rst->time_used > (runobj->time_limit - 100)){
+    //                 rst->judge_result = TLE;
+    //             }else{
+    //                 rst->judge_result = MLE;
+    //             }
+    //             break;
+    //         default:
+    //             rst->judge_result = RE;
+    //             break;
+    //     }
+    //     rst->re_signum = WTERMSIG(status);
+    // } else {
+    //     // if (rst->time_used > runobj->time_limit)
+    //     //     rst->judge_result = TLE;
+    //     // else if (rst->memory_used > runobj->memory_limit)
+    //     //     rst->judge_result = MLE;
+    //     // else
+    //         rst->judge_result = AC;
+    // }
 
     return 0;
 }
@@ -228,9 +337,9 @@ int runit(struct Runobj *runobj, struct Result *rst) {
             if (setuid(runobj->runner))
                 RAISE_EXIT("setuid failure")
 
-        if (runobj->trace)
-            if (ptrace(PTRACE_TRACEME, 0, NULL, NULL) == -1)
-                RAISE_EXIT("TRACEME failure")
+        // if (runobj->trace)
+        if (ptrace(PTRACE_TRACEME, 0, NULL, NULL) == -1)
+            RAISE_EXIT("TRACEME failure")
 
         execvp(runobj->args[0], (char * const *) runobj->args);
 
